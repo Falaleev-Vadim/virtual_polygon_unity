@@ -28,7 +28,7 @@ public class MainMenuController : MonoBehaviour
             };
 
             SimulationData.Parameters = parameters;
-            SceneManager.LoadScene("Simulation");
+            SceneManager.LoadScene("Simulation", LoadSceneMode.Single);
         }
     }
 
