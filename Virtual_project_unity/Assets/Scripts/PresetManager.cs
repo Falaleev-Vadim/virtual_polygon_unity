@@ -1,32 +1,74 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-[System.Serializable]
-public class Preset
-{
-    public string name;
-    public float speed;
-    public float angle;
-    public float drag;
-    public float mass;
-    public float caliber;
-}
-
 public class PresetManager : MonoBehaviour
 {
     public static PresetManager Instance;
+    private const string SAVE_KEY = "projectile_presets";
 
-    public List<Preset> presets = new List<Preset>();
+    [SerializeField] private List<Preset> presets = new List<Preset>();
 
-    private void Awake()
+    void Awake()
     {
         if (Instance == null)
         {
             Instance = this;
+            LoadPresets();
         }
         else
         {
             Destroy(gameObject);
         }
+    }
+
+    void OnApplicationQuit()
+    {
+        SavePresets();
+    }
+
+    public void SavePresets()
+    {
+        var wrapper = new PresetWrapper { presets = presets };
+        string json = JsonUtility.ToJson(wrapper);
+        PlayerPrefs.SetString(SAVE_KEY, json);
+        PlayerPrefs.Save();
+    }
+
+    public void LoadPresets()
+    {
+        if (PlayerPrefs.HasKey(SAVE_KEY))
+        {
+            string json = PlayerPrefs.GetString(SAVE_KEY);
+            presets = JsonUtility.FromJson<PresetWrapper>(json).presets;
+        }
+    }
+
+    public void AddPreset(Preset preset)
+    {
+        presets.Add(preset);
+        SavePresets();
+    }
+
+    public void RemovePreset(Preset preset)
+    {
+        presets.Remove(preset);
+        SavePresets();
+    }
+
+    [System.Serializable]
+    private class PresetWrapper
+    {
+        public List<Preset> presets;
+    }
+
+    public List<Preset> GetPresets()
+    {
+        return presets;
+    }
+
+    public void ClearPresets()
+    {
+        presets.Clear();
+        SavePresets();
     }
 }

@@ -2471,7 +2471,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 1, y: 1}
-  m_AnchoredPosition: {x: 0, y: 0.000042271862}
+  m_AnchoredPosition: {x: 0, y: -0.000019543068}
   m_SizeDelta: {x: 0, y: 300}
   m_Pivot: {x: 0, y: 1}
 --- !u!114 &448154511
@@ -4904,6 +4904,13 @@ MonoBehaviour:
   dragCoeffInput: {fileID: 913156467}
   massInput: {fileID: 1407418338}
   caliberInput: {fileID: 1565880502}
+  preset:
+    name: 
+    speed: 0
+    angle: 0
+    drag: 0
+    mass: 0
+    caliber: 0
 --- !u!114 &980614819
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -6620,8 +6627,8 @@ MonoBehaviour:
   m_TargetGraphic: {fileID: 2048970291}
   m_HandleRect: {fileID: 2048970290}
   m_Direction: 2
-  m_Value: 0
-  m_Size: 0.99921703
+  m_Value: 1
+  m_Size: 1
   m_NumberOfSteps: 0
   m_OnValueChanged:
     m_PersistentCalls:

@@ -1,5 +1,6 @@
 using TMPro;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 public class MainMenuPreset : MonoBehaviour
@@ -21,6 +22,7 @@ public class MainMenuPreset : MonoBehaviour
     public TMP_InputField caliberInput;
 
     private Preset selectedPreset;
+    public Preset preset;
 
     void Start()
     {
@@ -58,7 +60,7 @@ public class MainMenuPreset : MonoBehaviour
 
         Debug.Log($"Добавлен пресет: {newPreset.name}");
 
-        PresetManager.Instance.presets.Add(newPreset);
+        PresetManager.Instance.GetPresets().Add(newPreset);
         LoadPresets();
         HideAddPresetPanel();
     }
@@ -113,7 +115,7 @@ public class MainMenuPreset : MonoBehaviour
     private void LoadPresets()
     {
         if (PresetManager.Instance == null ||
-            PresetManager.Instance.presets == null ||
+            PresetManager.Instance.GetPresets() == null ||
             presetContent == null ||
             presetItemPrefab == null)
         {
@@ -124,7 +126,7 @@ public class MainMenuPreset : MonoBehaviour
         foreach (Transform child in presetContent)
             Destroy(child.gameObject);
 
-        foreach (var preset in PresetManager.Instance.presets)
+        foreach (var preset in PresetManager.Instance.GetPresets())
         {
             GameObject item = Instantiate(presetItemPrefab, presetContent);
             PresetItem presetItem = item.GetComponent<PresetItem>();
@@ -155,10 +157,15 @@ public class MainMenuPreset : MonoBehaviour
     {
         if (selectedPreset != null)
         {
-            PresetManager.Instance.presets.Remove(selectedPreset);
+            PresetManager.Instance.RemovePreset(selectedPreset);
             selectedPreset = null;
             LoadPresets();
-            UpdateButtonsState();
         }
+    }
+
+    public void OnStartSimulation()
+    {
+        PresetManager.Instance.SavePresets();
+        SceneManager.LoadScene("Simulation");
     }
 }
