@@ -1,7 +1,7 @@
 using System.Collections;
 using TMPro;
 using UnityEngine;
-using UnityEngine.UI;
+using UnityEngine.SceneManagement;
 
 public class SimulationController : MonoBehaviour
 {
@@ -32,7 +32,6 @@ public class SimulationController : MonoBehaviour
 
     void SetupScene()
     {
-        // Создание объектов
         Instantiate(startPointPrefab, Vector3.zero, Quaternion.identity);
         Instantiate(polygonPrefab,
             new Vector3(parameters.startToPolygonDistance * 1000, 0, 0),
@@ -43,7 +42,6 @@ public class SimulationController : MonoBehaviour
 
         projectile = Instantiate(projectilePrefab, Vector3.zero, Quaternion.identity);
 
-        // Удаляем Trail Renderer если есть
         if (projectile.GetComponent<TrailRenderer>() != null)
             Destroy(projectile.GetComponent<TrailRenderer>());
 
@@ -140,26 +138,22 @@ public class SimulationController : MonoBehaviour
 
     void SetupCamera()
     {
-        Camera.main.orthographic = true; // Используем ортографическую проекцию
+        Camera.main.orthographic = true;
 
-        // Рассчитываем размер
         float screenRatio = (float)Screen.width / Screen.height;
         float boundsWidth = trajectoryBounds.size.x;
         float boundsHeight = trajectoryBounds.size.y;
 
         if (screenRatio > boundsWidth / boundsHeight)
         {
-            // Ограничиваем по высоте
             Camera.main.orthographicSize = boundsHeight * 0.55f;
         }
         else
         {
-            // Ограничиваем по ширине
             float horizontalSize = boundsWidth / screenRatio * 0.55f;
             Camera.main.orthographicSize = horizontalSize;
         }
 
-        // Позиционируем камеру
         Camera.main.transform.position = new Vector3(
             trajectoryBounds.center.x,
             trajectoryBounds.center.y,
@@ -175,12 +169,15 @@ public class SimulationController : MonoBehaviour
             return;
         }
 
-        // Активируем панель
         resultsPanel.SetActive(true);
 
-        // Формируем текст результатов
         resultText.text = $"Время полета: {total_time:F2} с\n" +
                           $"Дальность стрельбы: {trajectoryPoints[^1].x:F1} м\n" +
                           $"Максимальная высота: {max_height:F1} м";
+    }
+
+    public void ReturnToMenu()
+    {
+        SceneManager.LoadScene("MainMenu");
     }
 }
