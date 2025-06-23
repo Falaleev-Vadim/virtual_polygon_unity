@@ -15,4 +15,6 @@ public struct SimulationParameters
 public static class SimulationData
 {
     public static SimulationParameters Parameters { get; set; }
+    public static Preset CurrentPreset { get; set; }
+    public static LaunchResult CurrentResult { get; set; }
 }

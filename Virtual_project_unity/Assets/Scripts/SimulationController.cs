@@ -1,7 +1,9 @@
+using System;
 using System.Collections;
 using TMPro;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using UnityEngine.UI;
 
 public class SimulationController : MonoBehaviour
 {
@@ -17,10 +19,14 @@ public class SimulationController : MonoBehaviour
     private float max_height;
     private float total_time;
     private Bounds trajectoryBounds;
+    private LaunchResult currentResult;
 
     [SerializeField] private GameObject resultsPanel;
     [SerializeField] private TMP_Text resultText;
+    [SerializeField] private Button saveButton;
+    [SerializeField] private Button exitButton;
     [SerializeField] private float trajectoryWidth = 2.0f;
+
 
     void Start()
     {
@@ -28,6 +34,22 @@ public class SimulationController : MonoBehaviour
         SetupScene();
         CalculateTrajectory();
         StartCoroutine(AnimateProjectile());
+
+        currentResult = new LaunchResult
+        {
+            presetName = "Без названия",
+            timestamp = DateTime.Now,
+            initialSpeed = parameters.initialSpeed,
+            angle = parameters.angleDegrees,
+            drag = parameters.dragCoefficient,
+            mass = parameters.mass,
+            caliber = parameters.caliberMm,
+            flightTime = total_time,
+            maxDistance = trajectoryPoints[^1].x,
+            maxHeight = max_height
+        };
+
+        ShowResults();
     }
 
     void SetupScene()
@@ -163,17 +185,35 @@ public class SimulationController : MonoBehaviour
 
     void ShowResults()
     {
-        if (resultsPanel == null || resultText == null)
+        if (resultsPanel == null || resultText == null ||
+        saveButton == null || exitButton == null)
         {
             Debug.LogError("UI элементы не назначены!");
             return;
         }
 
         resultsPanel.SetActive(true);
-
         resultText.text = $"Время полета: {total_time:F2} с\n" +
                           $"Дальность стрельбы: {trajectoryPoints[^1].x:F1} м\n" +
                           $"Максимальная высота: {max_height:F1} м";
+
+        // Добавьте проверки на null
+        if (saveButton != null)
+            saveButton.onClick.AddListener(SaveAndExit);
+        if (exitButton != null)
+            exitButton.onClick.AddListener(ReturnToMenu);
+    }
+
+    public void SaveAndExit()
+    {
+        if (ResultManager.Instance == null)
+        {
+            Debug.LogError("ResultManager не инициализирован!");
+            return;
+        }
+
+        ResultManager.Instance.SaveResult(currentResult);
+        SceneManager.LoadScene("MainMenu");
     }
 
     public void ReturnToMenu()
