@@ -49,7 +49,7 @@ public class SimulationController : MonoBehaviour
             maxHeight = max_height
         };
 
-        ShowResults();
+        //ShowResults();
     }
 
     void SetupScene()
