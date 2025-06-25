@@ -43,6 +43,16 @@ public class PresetManager : MonoBehaviour
         }
     }
 
+    public void UpdatePreset(Preset updatedPreset)
+    {
+        int index = presets.FindIndex(p => p.id == updatedPreset.id);
+        if (index != -1)
+        {
+            presets[index] = updatedPreset;
+            SavePresets();
+        }
+    }
+
     public void AddPreset(Preset preset)
     {
         presets.Add(preset);

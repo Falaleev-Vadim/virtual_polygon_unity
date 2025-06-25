@@ -1,4 +1,4 @@
-using TMPro;
+п»їusing TMPro;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
@@ -12,6 +12,17 @@ public class MainMenuPreset : MonoBehaviour
     public Button insertButton;
     public Button deleteButton;
 
+    [Header("Edit Panel")]
+    public Button editButton;
+    public TMP_InputField editNameInput;
+    public TMP_InputField editSpeedInput;
+    public TMP_InputField editAngleInput;
+    public TMP_InputField editDragInput;
+    public TMP_InputField editMassInput;
+    public TMP_InputField editCaliberInput;
+    public GameObject editPresetPanel;
+
+    [Header("Add Panel")]
     [SerializeField] private MainMenuController mainMenuController;
 
     public TMP_InputField nameInput;
@@ -35,16 +46,35 @@ public class MainMenuPreset : MonoBehaviour
         addPresetPanel.SetActive(true);
     }
 
+    public void ShowEditPresetPanel()
+    {
+        if (selectedPreset == null) return;
+
+        editNameInput.text = selectedPreset.name;
+        editSpeedInput.text = selectedPreset.speed.ToString();
+        editAngleInput.text = selectedPreset.angle.ToString();
+        editDragInput.text = selectedPreset.drag.ToString();
+        editMassInput.text = selectedPreset.mass.ToString();
+        editCaliberInput.text = selectedPreset.caliber.ToString();
+
+        editPresetPanel.SetActive(true);
+    }
+
     public void HideAddPresetPanel()
     {
         addPresetPanel.SetActive(false);
+    }
+
+    public void HideEditPresetPanel()
+    {
+        editPresetPanel.SetActive(false);
     }
 
     public void AddPreset()
     {
         if (string.IsNullOrEmpty(nameInput.text))
         {
-            Debug.LogError("Название не может быть пустым!");
+            Debug.LogError("РќР°Р·РІР°РЅРёРµ РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ РїСѓСЃС‚С‹Рј!");
             return;
         }
 
@@ -58,7 +88,7 @@ public class MainMenuPreset : MonoBehaviour
             caliber = float.Parse(caliberInput.text),
         };
 
-        Debug.Log($"Добавлен пресет: {newPreset.name}");
+        Debug.Log($"Р”РѕР±Р°РІР»РµРЅ РїСЂРµСЃРµС‚: {newPreset.name}");
 
         PresetManager.Instance.GetPresets().Add(newPreset);
         LoadPresets();
@@ -78,7 +108,6 @@ public class MainMenuPreset : MonoBehaviour
             }
         }
 
-        // Выделяем новый элемент
         selectedPreset = preset;
 
         if (selectedPreset != null)
@@ -91,6 +120,8 @@ public class MainMenuPreset : MonoBehaviour
         }
 
         UpdateButtonsState();
+
+        editButton.interactable = (selectedPreset != null);
     }
 
     private PresetItem FindPresetItem(Preset preset)
@@ -112,6 +143,40 @@ public class MainMenuPreset : MonoBehaviour
         deleteButton.interactable = selectedPreset != null;
     }
 
+    public void UpdatePreset()
+    {
+        if (selectedPreset == null || !ValidateEditInputs())
+            return;
+
+        selectedPreset.name = editNameInput.text;
+        selectedPreset.speed = float.Parse(editSpeedInput.text);
+        selectedPreset.angle = float.Parse(editAngleInput.text);
+        selectedPreset.drag = float.Parse(editDragInput.text);
+        selectedPreset.mass = float.Parse(editMassInput.text);
+        selectedPreset.caliber = float.Parse(editCaliberInput.text);
+
+        PresetManager.Instance.SavePresets();
+        LoadPresets();
+        editPresetPanel.SetActive(false);
+    }
+
+    private bool ValidateEditInputs()
+    {
+        if (string.IsNullOrEmpty(editNameInput.text))
+        {
+            Debug.LogError("РќР°Р·РІР°РЅРёРµ РЅРµ РјРѕР¶РµС‚ Р±С‹С‚СЊ РїСѓСЃС‚С‹Рј!");
+            return false;
+        }
+
+        if (!float.TryParse(editSpeedInput.text, out float speed) || speed < 100 || speed > 2000)
+        {
+            Debug.LogError("РќРµРІРµСЂРЅР°СЏ СЃРєРѕСЂРѕСЃС‚СЊ!");
+            return false;
+        }
+
+        return true;
+    }
+
     private void LoadPresets()
     {
         if (PresetManager.Instance == null ||
@@ -119,7 +184,7 @@ public class MainMenuPreset : MonoBehaviour
             presetContent == null ||
             presetItemPrefab == null)
         {
-            Debug.LogError("Критическая ошибка: не все компоненты инициализированы!");
+            Debug.LogError("РљСЂРёС‚РёС‡РµСЃРєР°СЏ РѕС€РёР±РєР°: РЅРµ РІСЃРµ РєРѕРјРїРѕРЅРµРЅС‚С‹ РёРЅРёС†РёР°Р»РёР·РёСЂРѕРІР°РЅС‹!");
             return;
         }
 
@@ -133,7 +198,7 @@ public class MainMenuPreset : MonoBehaviour
 
             if (presetItem == null)
             {
-                Debug.LogError("PresetItem component не найден на префабе!");
+                Debug.LogError("PresetItem component РЅРµ РЅР°Р№РґРµРЅ РЅР° РїСЂРµС„Р°Р±Рµ!");
                 continue;
             }
 

@@ -1,9 +1,9 @@
 using System;
-using UnityEngine;
 
 [Serializable]
 public class Preset
 {
+    public string id = Guid.NewGuid().ToString();
     public string name;
     public float speed;
     public float angle;
