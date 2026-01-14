@@ -4,13 +4,15 @@ using System;
 public struct SimulationParameters
 {
     public float initialSpeed;
-    public float angleDegrees;
+    public float elevationAngle; // Угол возвышения (ранее angleDegrees)
+    public float azimuthAngle; // Новый параметр - азимутальный угол
     public float dragCoefficient;
     public float mass;
     public float caliberMm;
     public float targetDistanceKm;
     public float startToPolygonDistance;
 
+    // Погодные параметры
     public float windSpeed;
     public float windDirection;
     public float temperature;

@@ -20,7 +20,7 @@ public class SimulationController : MonoBehaviour
     private float total_time;
     private Bounds trajectoryBounds;
     private LaunchResult currentResult;
-    private float minX, maxX, minY, maxY;
+    private float minX, maxX, minY, maxY, minZ, maxZ;
 
     [SerializeField] private GameObject resultsPanel;
     [SerializeField] private TMP_Text resultText;
@@ -28,20 +28,44 @@ public class SimulationController : MonoBehaviour
     [SerializeField] private Button exitButton;
     [SerializeField] private float trajectoryWidth = 2.0f;
 
+    // Добавьте эти поля в класс
+    private bool isFollowingProjectile = false; // Флаг режима слежения
+    private Vector3 initialCameraPosition; // Сохраняем изначальную позицию камеры
+    private Quaternion initialCameraRotation; // Сохраняем изначальное вращение камеры
+    private CameraController cameraController; // Ссылка на контроллер камеры
+
 
     void Start()
     {
+        isFollowingProjectile = false;
+
         parameters = SimulationData.Parameters;
         SetupScene();
         CalculateTrajectory();
+
+        // Создаем объект для центра траектории
+        GameObject trajectoryCenter = new GameObject("TrajectoryCenter");
+        trajectoryCenter.transform.position = trajectoryBounds.center;
+
+        // Устанавливаем цель для камеры
+        CameraController cameraController = Camera.main.GetComponent<CameraController>();
+        if (cameraController != null)
+        {
+            cameraController.SetTarget(trajectoryCenter.transform);
+        }
+
+        // Создаем визуальные элементы ПОСЛЕ расчета траектории
+        CreateGround();
+        CreateVisualizationElements();
+
         StartCoroutine(AnimateProjectile());
 
         currentResult = new LaunchResult
         {
             presetName = "Без названия",
-            timestamp = DateTime.Now, // Это автоматически установит timestampTicks
+            timestamp = DateTime.Now,
             initialSpeed = parameters.initialSpeed,
-            angle = parameters.angleDegrees,
+            angle = parameters.elevationAngle,
             drag = parameters.dragCoefficient,
             mass = parameters.mass,
             caliber = parameters.caliberMm,
@@ -54,22 +78,86 @@ public class SimulationController : MonoBehaviour
             altitude = parameters.altitude,
             turbulenceLevel = parameters.turbulenceLevel.ToString()
         };
+    }
 
-        //ShowResults();
+    void Update()
+    {
+        // Переключение режимов камеры по правой кнопке мыши
+        if (Input.GetMouseButtonDown(1))
+        {
+            ToggleCameraMode();
+        }
+    }
+
+    private void ToggleCameraMode()
+    {
+        if (cameraController == null) return;
+
+        isFollowingProjectile = !isFollowingProjectile;
+
+        if (isFollowingProjectile)
+        {
+            // Режим слежения: блокируем управление камерой
+            cameraController.canControlCamera = false;
+
+            // Перемещаем камеру ближе к снаряду
+            if (projectile != null)
+            {
+                Vector3 targetPosition = new Vector3(
+                    projectile.transform.position.x - 500f,
+                    Mathf.Max(projectile.transform.position.y + 300f, trajectoryBounds.center.y + trajectoryBounds.size.y * 0.6f),
+                    projectile.transform.position.z - 300f
+                );
+
+                Camera.main.transform.position = Vector3.Lerp(
+                    Camera.main.transform.position,
+                    targetPosition,
+                    0.5f
+                );
+
+                Camera.main.transform.LookAt(projectile.transform.position);
+            }
+        }
+        else
+        {
+            // Статичный режим: разрешаем управление камерой
+            cameraController.canControlCamera = true;
+
+            // Возвращаем камеру в начальную позицию
+            Camera.main.transform.position = initialCameraPosition;
+            Camera.main.transform.rotation = initialCameraRotation;
+        }
+
+        // Выводим информацию о текущем режиме в консоль для отладки
+        Debug.Log($"Режим камеры: {(isFollowingProjectile ? "Слежение за снарядом" : "Статичный просмотр всей траектории")}");
     }
 
     void SetupScene()
     {
+        // Создаем начальную точку
         Instantiate(startPointPrefab, Vector3.zero, Quaternion.identity);
-        Instantiate(polygonPrefab,
-            new Vector3(parameters.startToPolygonDistance * 1000, 0, 0),
-            Quaternion.identity);
-        Instantiate(targetPrefab,
-            new Vector3((parameters.startToPolygonDistance + parameters.targetDistanceKm) * 1000, 0, 0),
-            Quaternion.identity);
 
+        // Рассчитываем позицию полигона с учетом азимутального угла
+        float polygonDistance = parameters.startToPolygonDistance * 1000;
+        float polygonX = polygonDistance * Mathf.Cos(parameters.azimuthAngle * Mathf.Deg2Rad);
+        float polygonZ = polygonDistance * Mathf.Sin(parameters.azimuthAngle * Mathf.Deg2Rad);
+
+        // Создаем полигон в 3D позиции
+        Instantiate(polygonPrefab, new Vector3(polygonX, 0, polygonZ),
+                    Quaternion.Euler(0, -parameters.azimuthAngle, 0)); // Поворот полигона
+
+        // Аналогично для цели
+        float targetDistance = (parameters.startToPolygonDistance + parameters.targetDistanceKm) * 1000;
+        float targetX = targetDistance * Mathf.Cos(parameters.azimuthAngle * Mathf.Deg2Rad);
+        float targetZ = targetDistance * Mathf.Sin(parameters.azimuthAngle * Mathf.Deg2Rad);
+
+        Instantiate(targetPrefab, new Vector3(targetX, 0, targetZ),
+                    Quaternion.Euler(0, -parameters.azimuthAngle, 0));
+
+        // Создаем снаряд
         projectile = Instantiate(projectilePrefab, Vector3.zero, Quaternion.identity);
 
+        // Настраиваем линию траектории
         if (projectile.GetComponent<TrailRenderer>() != null)
             Destroy(projectile.GetComponent<TrailRenderer>());
 
@@ -82,11 +170,38 @@ public class SimulationController : MonoBehaviour
         trajectoryLine.positionCount = 0;
     }
 
+    void CreateGround()
+    {
+        // Создаем сетку земли для лучшего восприятия глубины
+        GameObject ground = GameObject.CreatePrimitive(PrimitiveType.Plane);
+        ground.name = "Ground";
+        ground.transform.localScale = new Vector3(5000, 1, 5000); // Реалистичный размер для сцены
+
+        // Настраиваем материал для земли
+        Material groundMaterial = new Material(Shader.Find("Standard"));
+        groundMaterial.color = new Color(0.3f, 0.6f, 0.3f);
+        groundMaterial.mainTexture = Resources.Load<Texture2D>("ground_texture");
+
+        ground.GetComponent<MeshRenderer>().material = groundMaterial;
+
+        // Позиционируем землю в центре траектории
+        if (trajectoryBounds.center != Vector3.zero)
+        {
+            ground.transform.position = new Vector3(trajectoryBounds.center.x, -0.1f, trajectoryBounds.center.z);
+        }
+        else
+        {
+            ground.transform.position = new Vector3(0, -0.1f, 0);
+        }
+    }
+
     void CalculateTrajectory()
     {
         // Получаем параметры
         float initialSpeed = parameters.initialSpeed;
-        float angleRad = parameters.angleDegrees * Mathf.Deg2Rad;
+        float elevationRad = parameters.elevationAngle * Mathf.Deg2Rad;
+        float azimuthRad = parameters.azimuthAngle * Mathf.Deg2Rad;
+
         float dragCoeff = parameters.dragCoefficient;
         float mass = parameters.mass;
         float caliber = parameters.caliberMm * 0.001f; // мм → м
@@ -97,52 +212,55 @@ public class SimulationController : MonoBehaviour
         float temperature = parameters.temperature;
         float altitude = parameters.altitude;
 
-        // Рассчитываем плотность воздуха с учётом температуры и высоты
+        // Рассчитываем плотность воздуха
         float airDensity = CalculateAirDensity(temperature, altitude);
 
-        // Компоненты скорости ветра
+        // Компоненты скорости ветра в 3D
         float windSpeedX = windSpeed * Mathf.Cos(windDirectionRad);
-        float windSpeedY = windSpeed * Mathf.Sin(windDirectionRad);
+        float windSpeedZ = windSpeed * Mathf.Sin(windDirectionRad);
+        float windSpeedY = 0f; // Предполагаем, что ветер горизонтальный
 
         // Физические константы
-        const float gravity = 9.81f; // м/с²
-        const float timeStep = 0.01f; // с
+        const float gravity = 9.81f;
+        const float timeStep = 0.01f;
 
-        // Начальные условия
-        float vx = initialSpeed * Mathf.Cos(angleRad);
-        float vy = initialSpeed * Mathf.Sin(angleRad);
+        // Начальные условия (3D компоненты скорости)
+        float initialSpeedXY = initialSpeed * Mathf.Cos(elevationRad); // Горизонтальная скорость
+        float vx = initialSpeedXY * Mathf.Cos(azimuthRad);
+        float vz = initialSpeedXY * Mathf.Sin(azimuthRad);
+        float vy = initialSpeed * Mathf.Sin(elevationRad);
 
-        // Площадь поперечного сечения снаряда
+        // Площадь поперечного сечения
         float crossSectionalArea = Mathf.PI * (caliber * 0.5f) * (caliber * 0.5f);
 
-        // Инициализация границ траектории
-        minX = float.MaxValue;
-        maxX = float.MinValue;
-        minY = float.MaxValue;
-        maxY = float.MinValue;
+        // Инициализация границ траектории для 3D
+        minX = float.MaxValue; maxX = float.MinValue;
+        minY = float.MaxValue; maxY = float.MinValue;
+        minZ = float.MaxValue; maxZ = float.MinValue; // Новое для Z
 
         // Список точек траектории
         var points = new System.Collections.Generic.List<Vector3>();
 
-        float x = 0, y = 0;
+        float x = 0, y = 0, z = 0; // Теперь 3 координаты
         float totalTime = 0;
         float maxHeight = 0;
 
-        while (y >= 0 && totalTime < 200) // Ограничение по времени для безопасности
+        while (y >= 0 && totalTime < 200)
         {
-            // Относительная скорость снаряда относительно воздуха
+            // Относительная скорость снаряда относительно воздуха в 3D
             float relVx = vx - windSpeedX;
             float relVy = vy - windSpeedY;
-            float relSpeed = Mathf.Sqrt(relVx * relVx + relVy * relVy);
+            float relVz = vz - windSpeedZ;
 
-            // Ускорение от сопротивления воздуха
+            float relSpeed = Mathf.Sqrt(relVx * relVx + relVy * relVy + relVz * relVz);
+
             float dragAccel = 0f;
             if (relSpeed > 0.001f)
             {
-                // Базовая сила сопротивления: F = 0.5 * Cd * ρ * A * v²
+                // Базовая сила сопротивления
                 float dragForce = 0.5f * dragCoeff * airDensity * crossSectionalArea * relSpeed * relSpeed;
 
-                // Применяем турбулентность как случайный множитель
+                // Турбулентность
                 float turbulenceMultiplier = 1f;
                 switch (parameters.turbulenceLevel)
                 {
@@ -158,40 +276,46 @@ public class SimulationController : MonoBehaviour
                 }
                 dragForce *= turbulenceMultiplier;
 
-                // Ускорение от сопротивления: a = F / m
+                // Ускорение от сопротивления
                 dragAccel = dragForce / mass;
             }
 
-            // Обновляем компоненты скорости
+            // Обновляем компоненты скорости с учетом 3D
             if (relSpeed > 0.001f)
             {
                 float relDirX = relVx / relSpeed;
                 float relDirY = relVy / relSpeed;
+                float relDirZ = relVz / relSpeed;
+
                 vx -= dragAccel * relDirX * timeStep;
                 vy -= (gravity + dragAccel * relDirY) * timeStep;
+                vz -= dragAccel * relDirZ * timeStep;
             }
             else
             {
-                // Если относительная скорость почти нулевая — только гравитация
                 vy -= gravity * timeStep;
             }
 
-            // Обновляем позицию
+            // Обновляем позицию в 3D
             x += vx * timeStep;
             y += vy * timeStep;
+            z += vz * timeStep;
+
             totalTime += timeStep;
 
             // Отслеживаем максимальную высоту
             if (y > maxHeight) maxHeight = y;
 
             // Добавляем точку траектории
-            points.Add(new Vector3(x, y, 0));
+            points.Add(new Vector3(x, y, z));
 
             // Обновляем границы для камеры
             if (x < minX) minX = x;
             if (x > maxX) maxX = x;
             if (y < minY) minY = y;
             if (y > maxY) maxY = y;
+            if (z < minZ) minZ = z; // Новое для Z
+            if (z > maxZ) maxZ = z; // Новое для Z
         }
 
         // Сохраняем результаты
@@ -199,16 +323,38 @@ public class SimulationController : MonoBehaviour
         total_time = totalTime;
         max_height = maxHeight;
 
-        // Рассчитываем границы для камеры
-        CalculateTrajectoryBounds();
+        // Рассчитываем границы для камеры в 3D
+        CalculateTrajectoryBounds3D();
     }
 
-    void CalculateTrajectoryBounds()
+/*    void CalculateTrajectoryBounds()
     {
         // Центр траектории
         Vector3 center = new Vector3((minX + maxX) / 2, (minY + maxY) / 2, 0);
         // Размеры области
         Vector3 size = new Vector3(maxX - minX, maxY - minY, 0);
+
+        trajectoryBounds = new Bounds(center, size);
+    }*/
+
+    void CalculateTrajectoryBounds3D()
+    {
+        // Добавляем буфер для лучшего обзора (10% от размеров)
+        float buffer = 0.1f;
+
+        // Центр траектории
+        Vector3 center = new Vector3(
+            (minX + maxX) / 2,
+            (minY + maxY) / 2,
+            (minZ + maxZ) / 2
+        );
+
+        // Размеры области с учетом буфера
+        Vector3 size = new Vector3(
+            (maxX - minX) * (1 + buffer),
+            (maxY - minY) * (1 + buffer),
+            (maxZ - minZ) * (1 + buffer)
+        );
 
         trajectoryBounds = new Bounds(center, size);
     }
@@ -269,12 +415,49 @@ public class SimulationController : MonoBehaviour
 
         trajectoryLine.positionCount = trajectoryPoints.Length;
 
-        SetupCamera();
+        // Сохраняем изначальную позицию камеры
+        initialCameraPosition = Camera.main.transform.position;
+        initialCameraRotation = Camera.main.transform.rotation;
+
+        // Получаем ссылку на контроллер камеры
+        cameraController = Camera.main.GetComponent<CameraController>();
+
+        SetupCamera3D();
         yield return null;
 
         for (int i = 0; i < trajectoryPoints.Length; i++)
         {
+            // Устанавливаем позицию в 3D
             projectile.transform.position = trajectoryPoints[i];
+
+            // Поворачиваем снаряд по направлению движения
+            if (i < trajectoryPoints.Length - 1)
+            {
+                Vector3 direction = trajectoryPoints[i + 1] - trajectoryPoints[i];
+                if (direction.magnitude > 0.001f)
+                {
+                    // Поворот снаряда в направлении движения
+                    projectile.transform.rotation = Quaternion.LookRotation(direction, Vector3.up);
+                }
+            }
+
+            // Следуем за снарядом ТОЛЬКО в режиме слежения
+            if (isFollowingProjectile && i % 5 == 0)
+            {
+                Vector3 targetPosition = new Vector3(
+                    projectile.transform.position.x - 500f,
+                    Mathf.Max(projectile.transform.position.y + 300f, trajectoryBounds.center.y + trajectoryBounds.size.y * 0.6f),
+                    projectile.transform.position.z - 300f
+                );
+
+                Camera.main.transform.position = Vector3.Lerp(
+                    Camera.main.transform.position,
+                    targetPosition,
+                    0.1f
+                );
+
+                Camera.main.transform.LookAt(projectile.transform.position);
+            }
 
             trajectoryLine.positionCount = i + 1;
             trajectoryLine.SetPosition(i, projectile.transform.position);
@@ -285,10 +468,125 @@ public class SimulationController : MonoBehaviour
             yield return new WaitForSeconds(0.01f);
         }
 
+        // После завершения полета возвращаем камеру в начальную позицию
+        /*yield return new WaitForSeconds(1f);
+        if (!isFollowingProjectile)
+        {
+            Camera.main.transform.position = initialCameraPosition;
+            Camera.main.transform.rotation = initialCameraRotation;
+        }*/
+
+        yield return new WaitForSeconds(1f);
         ShowResults();
     }
 
-    void SetupCamera()
+    void SetupCamera3D()
+    {
+        // Проверяем, существует ли CameraController
+        CameraController cameraController = Camera.main.GetComponent<CameraController>();
+        if (cameraController == null)
+        {
+            Debug.LogError("CameraController не прикреплен к основной камере!");
+            return;
+        }
+
+        // Определяем оптимальное расстояние камеры от центра сцены
+        float boundsSize = Mathf.Max(trajectoryBounds.size.x, trajectoryBounds.size.y, trajectoryBounds.size.z);
+
+        // Устанавливаем расстояние камеры с учетом размеров траектории
+        float cameraDistance = boundsSize * 0.8f;
+        cameraDistance = Mathf.Max(cameraDistance, 100f);
+
+        // Оптимальная высота камеры над траекторией
+        float cameraHeight = boundsSize * 0.6f;
+
+        // Позиционируем камеру для лучшего обзора всей траектории
+        Vector3 cameraPosition = new Vector3(
+            trajectoryBounds.center.x - cameraDistance * 0.7f,
+            trajectoryBounds.center.y + cameraHeight,
+            trajectoryBounds.center.z - cameraDistance * 0.5f
+        );
+
+        Camera.main.transform.position = cameraPosition;
+
+        // Направляем камеру на центр траектории
+        Camera.main.transform.LookAt(trajectoryBounds.center);
+
+        // Устанавливаем FOV для комфортного просмотра
+        Camera.main.fieldOfView = 45f;
+
+        // Настраиваем near/far clip plane для работы с дистанциями
+        Camera.main.nearClipPlane = 0.3f;
+        Camera.main.farClipPlane = Mathf.Max(2000f, cameraDistance * 2.5f);
+
+        // Сохраняем начальную позицию для сброса
+        cameraController.SetInitialPosition(cameraPosition, Camera.main.transform.rotation);
+    }
+
+    void SetupFlatTrajectoryCamera()
+    {
+        // Для плоских траекторий (соотношение высоты к длине < 0.15)
+        float boundsSize = Mathf.Max(trajectoryBounds.size.x, trajectoryBounds.size.z);
+        float cameraDistance = boundsSize * 0.9f;
+        cameraDistance = Mathf.Max(cameraDistance, 150f);
+
+        float cameraHeight = trajectoryBounds.size.y * 0.8f + 50f;
+
+        Vector3 cameraPosition = new Vector3(
+            trajectoryBounds.center.x,
+            trajectoryBounds.center.y + cameraHeight,
+            trajectoryBounds.center.z - cameraDistance
+        );
+
+        Camera.main.transform.position = cameraPosition;
+        Camera.main.transform.LookAt(new Vector3(
+            trajectoryBounds.center.x,
+            trajectoryBounds.center.y,
+            trajectoryBounds.center.z
+        ));
+
+        Camera.main.fieldOfView = 40f;
+    }
+
+    void SetupMediumTrajectoryCamera()
+    {
+        // Для средних траекторий (соотношение 0.15-0.4)
+        float boundsSize = Mathf.Max(trajectoryBounds.size.x, trajectoryBounds.size.y, trajectoryBounds.size.z);
+        float cameraDistance = boundsSize * 0.7f;
+        cameraDistance = Mathf.Max(cameraDistance, 120f);
+
+        Vector3 cameraPosition = new Vector3(
+            trajectoryBounds.center.x - cameraDistance * 0.6f,
+            trajectoryBounds.center.y + boundsSize * 0.5f,
+            trajectoryBounds.center.z - cameraDistance * 0.4f
+        );
+
+        Camera.main.transform.position = cameraPosition;
+        Camera.main.transform.LookAt(trajectoryBounds.center);
+
+        Camera.main.fieldOfView = 45f;
+    }
+
+    void SetupHighTrajectoryCamera()
+    {
+        // Для высоких траекторий (соотношение > 0.4)
+        float boundsSize = Mathf.Max(trajectoryBounds.size.x, trajectoryBounds.size.y, trajectoryBounds.size.z);
+        float cameraDistance = boundsSize * 0.6f;
+        cameraDistance = Mathf.Max(cameraDistance, 100f);
+
+        Vector3 cameraPosition = new Vector3(
+            trajectoryBounds.center.x - cameraDistance * 0.4f,
+            trajectoryBounds.center.y + boundsSize * 0.7f,
+            trajectoryBounds.center.z - cameraDistance * 0.3f
+        );
+
+        Camera.main.transform.position = cameraPosition;
+        Camera.main.transform.LookAt(trajectoryBounds.center);
+
+        Camera.main.fieldOfView = 50f;
+    }
+
+    /*void SetupCamera()
     {
         Camera.main.orthographic = true;
 
@@ -311,7 +609,7 @@ public class SimulationController : MonoBehaviour
             trajectoryBounds.center.y,
             Camera.main.transform.position.z
         );
-    }
+    }*/
 
     void ShowResults()
     {
@@ -357,5 +655,79 @@ public class SimulationController : MonoBehaviour
     public void ReturnToMenu()
     {
         SceneManager.LoadScene("MainMenu");
+    }
+
+    void CreateVisualizationElements()
+    {
+        // Создаем координатные оси для ориентации
+        CreateCoordinateAxes();
+
+        // Создаем маркеры расстояния
+        CreateDistanceMarkers();
+    }
+    private enum TrajectoryType { Flat, Medium, High }
+    private TrajectoryType GetTrajectoryType()
+    {
+        float flatRatio = trajectoryBounds.size.y / Mathf.Max(trajectoryBounds.size.x, trajectoryBounds.size.z);
+
+        if (flatRatio < 0.15f) return TrajectoryType.Flat;
+        if (flatRatio < 0.4f) return TrajectoryType.Medium;
+        return TrajectoryType.High;
+    }
+
+    void CreateCoordinateAxes()
+    {
+        GameObject axes = new GameObject("CoordinateAxes");
+
+        // Ось X (красная)
+        GameObject xAxis = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        xAxis.transform.parent = axes.transform;
+        xAxis.transform.localScale = new Vector3(100, 0.5f, 0.5f);
+        xAxis.transform.localPosition = new Vector3(50, 0, 0);
+        xAxis.GetComponent<Renderer>().material.color = Color.red;
+
+        // Ось Y (зеленая)
+        GameObject yAxis = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        yAxis.transform.parent = axes.transform;
+        yAxis.transform.localScale = new Vector3(0.5f, 100, 0.5f);
+        yAxis.transform.localPosition = new Vector3(0, 50, 0);
+        yAxis.GetComponent<Renderer>().material.color = Color.green;
+
+        // Ось Z (синяя)
+        GameObject zAxis = GameObject.CreatePrimitive(PrimitiveType.Cube);
+        zAxis.transform.parent = axes.transform;
+        zAxis.transform.localScale = new Vector3(0.5f, 0.5f, 100);
+        zAxis.transform.localPosition = new Vector3(0, 0, 50);
+        zAxis.GetComponent<Renderer>().material.color = Color.blue;
+    }
+
+    void CreateDistanceMarkers()
+    {
+        float maxDistance = trajectoryBounds.size.x;
+        int markerCount = Mathf.CeilToInt(maxDistance / 1000f);
+
+        for (int i = 1; i <= markerCount; i++)
+        {
+            float position = i * 1000f;
+
+            GameObject marker = new GameObject($"DistanceMarker_{i}km");
+            marker.transform.position = new Vector3(position, 0, 0);
+
+            // Создаем визуальный маркер
+            GameObject cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            cube.transform.parent = marker.transform;
+            cube.transform.localScale = new Vector3(10, 10, 10);
+            cube.GetComponent<Renderer>().material.color = Color.yellow;
+
+            // Добавляем текст
+            GameObject textObject = new GameObject("Text");
+            textObject.transform.parent = marker.transform;
+            textObject.transform.localPosition = new Vector3(0, 15, 0);
+
+            TextMeshPro text = textObject.AddComponent<TextMeshPro>();
+            text.text = $"{i} km";
+            text.fontSize = 12;
+            text.color = Color.white;
+        }
     }
 }

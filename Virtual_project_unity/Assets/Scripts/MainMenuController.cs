@@ -12,6 +12,7 @@ public class MainMenuController : MonoBehaviour
     public TMP_InputField caliberInput;
     public TMP_InputField targetDistanceInput;
     public TMP_InputField startToPolygonInput;
+    public TMP_InputField azimuthAngleInput;
 
     public WeatherManager weatherManager;
 
@@ -36,14 +37,15 @@ public class MainMenuController : MonoBehaviour
         // Продолжение инициализации
     }
 
-    public void StartSimulation()
+    private void StartSimulation()
     {
         if (!ValidateInputs()) return;
 
         SimulationParameters parameters = new SimulationParameters
         {
             initialSpeed = float.Parse(speedInput.text),
-            angleDegrees = float.Parse(angleInput.text),
+            elevationAngle = float.Parse(angleInput.text),
+            azimuthAngle = float.Parse(azimuthAngleInput.text), // Новое поле
             dragCoefficient = float.Parse(dragCoeffInput.text),
             mass = float.Parse(massInput.text),
             caliberMm = float.Parse(caliberInput.text),
@@ -51,10 +53,9 @@ public class MainMenuController : MonoBehaviour
             startToPolygonDistance = float.Parse(startToPolygonInput.text)
         };
 
-        // Получаем текущие погодные условия (с генерацией случайных значений при необходимости)
-        WeatherParameters weather = WeatherManager.Instance.GetCurrentWeatherParameters();
+        // Получаем текущие погодные условия
+        WeatherParameters weather = weatherManager.GetCurrentWeatherParameters();
 
-        // Добавляем погодные параметры
         parameters.windSpeed = weather.windSpeed;
         parameters.windDirection = weather.windDirection;
         parameters.temperature = weather.temperature;
@@ -74,6 +75,7 @@ public class MainMenuController : MonoBehaviour
         if (!ValidateRange(caliberInput, 1, 500)) return false;
         if (!ValidateRange(targetDistanceInput, 0.1f, 50)) return false;
         if (!ValidateRange(startToPolygonInput, 0.1f, 50)) return false;
+        if (!ValidateRange(azimuthAngleInput, 0, 360)) return false;
         return true;
     }
 
