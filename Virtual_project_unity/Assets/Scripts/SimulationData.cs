@@ -10,6 +10,12 @@ public struct SimulationParameters
     public float caliberMm;
     public float targetDistanceKm;
     public float startToPolygonDistance;
+
+    public float windSpeed;
+    public float windDirection;
+    public float temperature;
+    public float altitude;
+    public TurbulenceLevel turbulenceLevel;
 }
 
 public static class SimulationData

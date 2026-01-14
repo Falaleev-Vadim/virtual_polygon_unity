@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using TMPro;
 using UnityEngine;
@@ -20,6 +20,7 @@ public class SimulationController : MonoBehaviour
     private float total_time;
     private Bounds trajectoryBounds;
     private LaunchResult currentResult;
+    private float minX, maxX, minY, maxY;
 
     [SerializeField] private GameObject resultsPanel;
     [SerializeField] private TMP_Text resultText;
@@ -37,8 +38,8 @@ public class SimulationController : MonoBehaviour
 
         currentResult = new LaunchResult
         {
-            presetName = "��� ��������",
-            timestamp = DateTime.Now,
+            presetName = "Без названия",
+            timestamp = DateTime.Now, // Это автоматически установит timestampTicks
             initialSpeed = parameters.initialSpeed,
             angle = parameters.angleDegrees,
             drag = parameters.dragCoefficient,
@@ -46,7 +47,12 @@ public class SimulationController : MonoBehaviour
             caliber = parameters.caliberMm,
             flightTime = total_time,
             maxDistance = trajectoryPoints[^1].x,
-            maxHeight = max_height
+            maxHeight = max_height,
+            windSpeed = parameters.windSpeed,
+            windDirection = parameters.windDirection,
+            temperature = parameters.temperature,
+            altitude = parameters.altitude,
+            turbulenceLevel = parameters.turbulenceLevel.ToString()
         };
 
         //ShowResults();
@@ -78,62 +84,186 @@ public class SimulationController : MonoBehaviour
 
     void CalculateTrajectory()
     {
-        float g = 9.80665f;
-        float dt = 0.01f;
-        float angleRad = Mathf.Deg2Rad * parameters.angleDegrees;
-        float caliber = parameters.caliberMm / 1000f;
-        float radius = caliber / 2f;
-        float area = Mathf.PI * radius * radius;
+        // Получаем параметры
+        float initialSpeed = parameters.initialSpeed;
+        float angleRad = parameters.angleDegrees * Mathf.Deg2Rad;
+        float dragCoeff = parameters.dragCoefficient;
+        float mass = parameters.mass;
+        float caliber = parameters.caliberMm * 0.001f; // мм → м
 
-        float vx = parameters.initialSpeed * Mathf.Cos(angleRad);
-        float vy = parameters.initialSpeed * Mathf.Sin(angleRad);
+        // Погодные параметры
+        float windSpeed = parameters.windSpeed;
+        float windDirectionRad = parameters.windDirection * Mathf.Deg2Rad;
+        float temperature = parameters.temperature;
+        float altitude = parameters.altitude;
 
+        // Рассчитываем плотность воздуха с учётом температуры и высоты
+        float airDensity = CalculateAirDensity(temperature, altitude);
+
+        // Компоненты скорости ветра
+        float windSpeedX = windSpeed * Mathf.Cos(windDirectionRad);
+        float windSpeedY = windSpeed * Mathf.Sin(windDirectionRad);
+
+        // Физические константы
+        const float gravity = 9.81f; // м/с²
+        const float timeStep = 0.01f; // с
+
+        // Начальные условия
+        float vx = initialSpeed * Mathf.Cos(angleRad);
+        float vy = initialSpeed * Mathf.Sin(angleRad);
+
+        // Площадь поперечного сечения снаряда
+        float crossSectionalArea = Mathf.PI * (caliber * 0.5f) * (caliber * 0.5f);
+
+        // Инициализация границ траектории
+        minX = float.MaxValue;
+        maxX = float.MinValue;
+        minY = float.MaxValue;
+        maxY = float.MinValue;
+
+        // Список точек траектории
         var points = new System.Collections.Generic.List<Vector3>();
+
         float x = 0, y = 0;
-        float time = 0;
+        float totalTime = 0;
+        float maxHeight = 0;
 
-        float minX = 0, maxX = 0, minY = 0, maxY = 0;
-
-        while (y >= 0)
+        while (y >= 0 && totalTime < 200) // Ограничение по времени для безопасности
         {
-            float v = Mathf.Sqrt(vx * vx + vy * vy);
-            float F_drag = 0.5f * parameters.dragCoefficient * 1.225f * area * v * v;
-            float a_drag = F_drag / parameters.mass;
+            // Относительная скорость снаряда относительно воздуха
+            float relVx = vx - windSpeedX;
+            float relVy = vy - windSpeedY;
+            float relSpeed = Mathf.Sqrt(relVx * relVx + relVy * relVy);
 
-            float ax = -a_drag * (vx / v);
-            float ay = -g - a_drag * (vy / v);
+            // Ускорение от сопротивления воздуха
+            float dragAccel = 0f;
+            if (relSpeed > 0.001f)
+            {
+                // Базовая сила сопротивления: F = 0.5 * Cd * ρ * A * v²
+                float dragForce = 0.5f * dragCoeff * airDensity * crossSectionalArea * relSpeed * relSpeed;
 
-            vx += ax * dt;
-            vy += ay * dt;
+                // Применяем турбулентность как случайный множитель
+                float turbulenceMultiplier = 1f;
+                switch (parameters.turbulenceLevel)
+                {
+                    case TurbulenceLevel.Low:
+                        turbulenceMultiplier += UnityEngine.Random.Range(0f, 0.1f);
+                        break;
+                    case TurbulenceLevel.Medium:
+                        turbulenceMultiplier += UnityEngine.Random.Range(0f, 0.3f);
+                        break;
+                    case TurbulenceLevel.High:
+                        turbulenceMultiplier += UnityEngine.Random.Range(0f, 0.6f);
+                        break;
+                }
+                dragForce *= turbulenceMultiplier;
 
-            x += vx * dt;
-            y += vy * dt;
-            time += dt;
+                // Ускорение от сопротивления: a = F / m
+                dragAccel = dragForce / mass;
+            }
 
+            // Обновляем компоненты скорости
+            if (relSpeed > 0.001f)
+            {
+                float relDirX = relVx / relSpeed;
+                float relDirY = relVy / relSpeed;
+                vx -= dragAccel * relDirX * timeStep;
+                vy -= (gravity + dragAccel * relDirY) * timeStep;
+            }
+            else
+            {
+                // Если относительная скорость почти нулевая — только гравитация
+                vy -= gravity * timeStep;
+            }
+
+            // Обновляем позицию
+            x += vx * timeStep;
+            y += vy * timeStep;
+            totalTime += timeStep;
+
+            // Отслеживаем максимальную высоту
+            if (y > maxHeight) maxHeight = y;
+
+            // Добавляем точку траектории
             points.Add(new Vector3(x, y, 0));
 
-            if (y > max_height) max_height = y;
-
+            // Обновляем границы для камеры
             if (x < minX) minX = x;
             if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
             if (y > maxY) maxY = y;
-            minY = Mathf.Min(minY, y);
         }
 
-        trajectoryBounds = new Bounds(
-        new Vector3((minX + maxX) / 2, (minY + maxY) / 2, 0),
-        new Vector3(maxX - minX, maxY - minY, 0)
-        );
-
-        total_time = time;
+        // Сохраняем результаты
         trajectoryPoints = points.ToArray();
+        total_time = totalTime;
+        max_height = maxHeight;
+
+        // Рассчитываем границы для камеры
+        CalculateTrajectoryBounds();
+    }
+
+    void CalculateTrajectoryBounds()
+    {
+        // Центр траектории
+        Vector3 center = new Vector3((minX + maxX) / 2, (minY + maxY) / 2, 0);
+        // Размеры области
+        Vector3 size = new Vector3(maxX - minX, maxY - minY, 0);
+
+        trajectoryBounds = new Bounds(center, size);
+    }
+
+    // Метод для расчета плотности воздуха
+    private float CalculateAirDensity(float temperature, float altitude)
+    {
+        // Стандартная плотность воздуха на уровне моря при 15°C
+        const float seaLevelDensity = 1.225f; // кг/м³
+
+        // Поправка на температуру (упрощенная формула)
+        float temperatureFactor = (273.15f + 15f) / (273.15f + temperature);
+
+        // Поправка на высоту (экспоненциальная модель)
+        float altitudeFactor = Mathf.Exp(-altitude / 8500f); // 8500м - характерная высота
+
+        return seaLevelDensity * temperatureFactor * altitudeFactor;
+    }
+
+    // Метод для расчета силы сопротивления воздуха с учетом погоды
+    private float CalculateAirResistance(float vx, float vy, float dragCoeff, float airDensity,
+                                         float crossSectionalArea, float windSpeedX, float windSpeedY,
+                                         TurbulenceLevel turbulenceLevel)
+    {
+        // Относительная скорость относительно воздуха
+        float relativeVx = vx - windSpeedX;
+        float relativeVy = vy - windSpeedY;
+        float relativeSpeed = Mathf.Sqrt(relativeVx * relativeVx + relativeVy * relativeVy);
+
+        // Базовое сопротивление
+        float baseResistance = 0.5f * dragCoeff * airDensity * crossSectionalArea * relativeSpeed * relativeSpeed;
+
+        // Добавляем турбулентность
+        float turbulenceFactor = 1f;
+        switch (turbulenceLevel)
+        {
+            case TurbulenceLevel.Low:
+                turbulenceFactor = 1f + UnityEngine.Random.Range(0f, 0.1f);
+                break;
+            case TurbulenceLevel.Medium:
+                turbulenceFactor = 1f + UnityEngine.Random.Range(0f, 0.3f);
+                break;
+            case TurbulenceLevel.High:
+                turbulenceFactor = 1f + UnityEngine.Random.Range(0f, 0.6f);
+                break;
+        }
+
+        return baseResistance * turbulenceFactor;
     }
 
     IEnumerator AnimateProjectile()
     {
         if (trajectoryPoints == null || trajectoryPoints.Length == 0)
         {
-            Debug.LogError("���������� �� ����������");
+            Debug.LogError("Траектория не рассчитана");
             yield break;
         }
 
@@ -188,16 +318,24 @@ public class SimulationController : MonoBehaviour
         if (resultsPanel == null || resultText == null ||
         saveButton == null || exitButton == null)
         {
-            Debug.LogError("UI �������� �� ���������!");
+            Debug.LogError("UI элементы не назначены!");
             return;
         }
 
         resultsPanel.SetActive(true);
-        resultText.text = $"����� ������: {total_time:F2} �\n" +
-                          $"��������� ��������: {trajectoryPoints[^1].x:F1} �\n" +
-                          $"������������ ������: {max_height:F1} �";
 
-        // �������� �������� �� null
+        string weatherInfo = $"Погодные условия:\n" +
+                        $"Скорость ветра: {parameters.windSpeed:F1} м/с\n" +
+                        $"Направление ветра: {parameters.windDirection:F0}°\n" +
+                        $"Температура: {parameters.temperature:F1}°C\n" +
+                        $"Высота над уровнем моря: {parameters.altitude:F0} м\n" +
+                        $"Турбулентность: {parameters.turbulenceLevel}";
+
+        resultText.text = $"Время полета: {total_time:F2} с\n" +
+                          $"Дальность стрельбы: {trajectoryPoints[^1].x:F1} м\n" +
+                          $"Максимальная высота: {max_height:F1} м";
+
+        // Добавьте проверки на null
         if (saveButton != null)
             saveButton.onClick.AddListener(SaveAndExit);
         if (exitButton != null)
@@ -208,7 +346,7 @@ public class SimulationController : MonoBehaviour
     {
         if (ResultManager.Instance == null)
         {
-            Debug.LogError("ResultManager �� ���������������!");
+            Debug.LogError("ResultManager не инициализирован!");
             return;
         }
 

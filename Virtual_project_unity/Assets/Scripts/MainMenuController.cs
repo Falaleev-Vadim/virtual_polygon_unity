@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using TMPro;
+using System.Collections;
 
 public class MainMenuController : MonoBehaviour
 {
@@ -12,24 +13,56 @@ public class MainMenuController : MonoBehaviour
     public TMP_InputField targetDistanceInput;
     public TMP_InputField startToPolygonInput;
 
-    public void OnStartSimulation()
-    {
-        if (ValidateInputs())
-        {
-            SimulationParameters parameters = new SimulationParameters
-            {
-                initialSpeed = float.Parse(speedInput.text),
-                angleDegrees = float.Parse(angleInput.text),
-                dragCoefficient = float.Parse(dragCoeffInput.text),
-                mass = float.Parse(massInput.text),
-                caliberMm = float.Parse(caliberInput.text),
-                targetDistanceKm = float.Parse(targetDistanceInput.text),
-                startToPolygonDistance = float.Parse(startToPolygonInput.text)
-            };
+    public WeatherManager weatherManager;
 
-            SimulationData.Parameters = parameters;
-            SceneManager.LoadScene("Simulation", LoadSceneMode.Single);
+    void Start()
+    {
+        // Добавьте задержку для инициализации WeatherManager
+        StartCoroutine(InitializeAfterDelay());
+    }
+
+    IEnumerator InitializeAfterDelay()
+    {
+        yield return null; // Даем один кадр на инициализацию
+
+        if (WeatherManager.Instance == null)
+        {
+            Debug.LogError("WeatherManager не инициализирован!");
+            // Можно создать временный экземпляр для предотвращения ошибок
+            GameObject tempWeatherManager = new GameObject("TempWeatherManager");
+            tempWeatherManager.AddComponent<WeatherManager>();
         }
+
+        // Продолжение инициализации
+    }
+
+    public void StartSimulation()
+    {
+        if (!ValidateInputs()) return;
+
+        SimulationParameters parameters = new SimulationParameters
+        {
+            initialSpeed = float.Parse(speedInput.text),
+            angleDegrees = float.Parse(angleInput.text),
+            dragCoefficient = float.Parse(dragCoeffInput.text),
+            mass = float.Parse(massInput.text),
+            caliberMm = float.Parse(caliberInput.text),
+            targetDistanceKm = float.Parse(targetDistanceInput.text),
+            startToPolygonDistance = float.Parse(startToPolygonInput.text)
+        };
+
+        // Получаем текущие погодные условия (с генерацией случайных значений при необходимости)
+        WeatherParameters weather = WeatherManager.Instance.GetCurrentWeatherParameters();
+
+        // Добавляем погодные параметры
+        parameters.windSpeed = weather.windSpeed;
+        parameters.windDirection = weather.windDirection;
+        parameters.temperature = weather.temperature;
+        parameters.altitude = weather.altitude;
+        parameters.turbulenceLevel = weather.turbulenceLevel;
+
+        SimulationData.Parameters = parameters;
+        SceneManager.LoadScene("Simulation", LoadSceneMode.Single);
     }
 
     private bool ValidateInputs()
