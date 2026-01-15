@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections;
+using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -34,31 +35,43 @@ public class SimulationController : MonoBehaviour
     private Quaternion initialCameraRotation; // Сохраняем изначальное вращение камеры
     private CameraController cameraController; // Ссылка на контроллер камеры
 
+    private List<Vector3> impactPoints = new List<Vector3>();
+    private GameObject dispersionEllipse;
+    private GameObject mapVisualization;
+    private TextMeshPro dispersionText;
 
     void Start()
     {
+
         isFollowingProjectile = false;
 
-        parameters = SimulationData.Parameters;
-        SetupScene();
-        CalculateTrajectory();
-
-        // Создаем объект для центра траектории
-        GameObject trajectoryCenter = new GameObject("TrajectoryCenter");
-        trajectoryCenter.transform.position = trajectoryBounds.center;
-
-        // Устанавливаем цель для камеры
-        CameraController cameraController = Camera.main.GetComponent<CameraController>();
-        if (cameraController != null)
+        if (SimulationData.IsSeriesMode)
         {
-            cameraController.SetTarget(trajectoryCenter.transform);
+            StartCoroutine(RunShotSeries());
         }
+        else
+        {
+            parameters = SimulationData.Parameters;
+            SetupScene();
+            CalculateTrajectory();
 
-        // Создаем визуальные элементы ПОСЛЕ расчета траектории
-        CreateGround();
-        CreateVisualizationElements();
+            // Создаем объект для центра траектории
+            GameObject trajectoryCenter = new GameObject("TrajectoryCenter");
+            trajectoryCenter.transform.position = trajectoryBounds.center;
 
-        StartCoroutine(AnimateProjectile());
+            // Устанавливаем цель для камеры
+            CameraController cameraController = Camera.main.GetComponent<CameraController>();
+            if (cameraController != null)
+            {
+                cameraController.SetTarget(trajectoryCenter.transform);
+            }
+
+            // Создаем визуальные элементы ПОСЛЕ расчета траектории
+            CreateGround();
+            CreateVisualizationElements();
+
+            StartCoroutine(AnimateProjectile());
+        }
 
         currentResult = new LaunchResult
         {
@@ -78,6 +91,360 @@ public class SimulationController : MonoBehaviour
             altitude = parameters.altitude,
             turbulenceLevel = parameters.turbulenceLevel.ToString()
         };
+    }
+
+    IEnumerator RunShotSeries()
+    {
+        SetupScene();
+
+        // Отключаем UI результатов для одиночного выстрела
+        if (resultsPanel != null) resultsPanel.SetActive(false);
+
+        // Создаем визуализацию карты
+        CreateMapVisualization();
+
+        for (int i = 0; i < SimulationData.SeriesParameters.Count; i++)
+        {
+            parameters = SimulationData.SeriesParameters[i];
+            CalculateTrajectory();
+
+            // Анимируем полет
+            yield return StartCoroutine(AnimateProjectile());
+
+            // Сохраняем точку падения
+            if (trajectoryPoints.Length > 0)
+            {
+                Vector3 impactPoint = trajectoryPoints[^1];
+                impactPoints.Add(impactPoint);
+
+                // Создаем маркер падения
+                CreateImpactMarker(impactPoint, i + 1);
+
+                // Сохраняем результат
+                LaunchResult result = new LaunchResult
+                {
+                    id = Guid.NewGuid().ToString(),
+                    presetName = $"Выстрел #{i + 1}",
+                    timestamp = DateTime.Now.AddSeconds(i * 2),
+                    initialSpeed = parameters.initialSpeed,
+                    angle = parameters.elevationAngle,
+                    drag = parameters.dragCoefficient,
+                    mass = parameters.mass,
+                    caliber = parameters.caliberMm,
+                    flightTime = total_time,
+                    maxDistance = impactPoint.x,
+                    maxHeight = max_height,
+                    windSpeed = parameters.windSpeed,
+                    windDirection = parameters.windDirection,
+                    temperature = parameters.temperature,
+                    altitude = parameters.altitude,
+                    turbulenceLevel = parameters.turbulenceLevel.ToString()
+                };
+
+                SimulationData.SeriesResults.Add(result);
+            }
+
+            yield return new WaitForSeconds(1f);
+        }
+
+        // Рассчитываем и отображаем эллипс рассеивания
+        CalculateAndDisplayDispersionEllipse();
+
+        // Отображаем панель с результатами серии
+        ShowSeriesResults();
+    }
+
+    void CreateMapVisualization()
+    {
+        // Создаем плоскость для карты
+        mapVisualization = GameObject.CreatePrimitive(PrimitiveType.Plane);
+        mapVisualization.transform.localScale = new Vector3(200, 1, 200); // 20 км × 20 км
+        mapVisualization.transform.position = new Vector3(10000, -1, 10000);
+
+        // Добавляем сетку
+        Material gridMaterial = new Material(Shader.Find("Standard"));
+        Texture2D grid = new Texture2D(1024, 1024);
+
+        for (int x = 0; x < 1024; x++)
+        {
+            for (int y = 0; y < 1024; y++)
+            {
+                if (x % 100 == 0 || y % 100 == 0)
+                    grid.SetPixel(x, y, Color.black);
+                else
+                    grid.SetPixel(x, y, new Color(0.3f, 0.6f, 0.3f));
+            }
+        }
+
+        grid.Apply();
+        gridMaterial.mainTexture = grid;
+        mapVisualization.GetComponent<Renderer>().material = gridMaterial;
+
+        // Добавляем текстовое поле для отображения кучности
+        GameObject textObject = new GameObject("DispersionText");
+        textObject.transform.position = new Vector3(10000, 50, 19500);
+
+        dispersionText = textObject.AddComponent<TextMeshPro>();
+        dispersionText.fontSize = 36;
+        dispersionText.color = Color.white;
+        dispersionText.alignment = TextAlignmentOptions.Center;
+        dispersionText.text = "Кучность стрельбы";
+    }
+
+    void CreateImpactMarker(Vector3 position, int shotNumber)
+    {
+        // Создаем маркер падения
+        GameObject marker = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+        marker.transform.position = new Vector3(position.x, 0.5f, position.z);
+        marker.transform.localScale = new Vector3(50, 50, 50);
+
+        Material markerMat = new Material(Shader.Find("Standard"));
+        markerMat.color = Color.red;
+        marker.GetComponent<Renderer>().material = markerMat;
+
+        // Добавляем номер выстрела
+        GameObject numberObject = new GameObject($"Shot-{shotNumber}");
+        numberObject.transform.position = new Vector3(position.x, 60f, position.z);
+
+        TextMeshPro numberText = numberObject.AddComponent<TextMeshPro>();
+        numberText.text = shotNumber.ToString();
+        numberText.fontSize = 24;
+        numberText.color = Color.white;
+    }
+
+    void CalculateAndDisplayDispersionEllipse()
+    {
+        if (impactPoints.Count < 2) return;
+
+        // Рассчитываем средние координаты
+        float avgX = 0, avgZ = 0;
+        foreach (var point in impactPoints)
+        {
+            avgX += point.x;
+            avgZ += point.z;
+        }
+        avgX /= impactPoints.Count;
+        avgZ /= impactPoints.Count;
+
+        // Рассчитываем стандартные отклонения
+        float sumX = 0, sumZ = 0;
+        foreach (var point in impactPoints)
+        {
+            sumX += Mathf.Pow(point.x - avgX, 2);
+            sumZ += Mathf.Pow(point.z - avgZ, 2);
+        }
+
+        float stdDevX = Mathf.Sqrt(sumX / (impactPoints.Count - 1));
+        float stdDevZ = Mathf.Sqrt(sumZ / (impactPoints.Count - 1));
+
+        // Коэффициент 0.6745 для перехода к вероятным отклонениям
+        float probableDevX = 0.6745f * stdDevX;
+        float probableDevZ = 0.6745f * stdDevZ;
+
+        // Относительная кучность
+        float relativeDispersionX = avgX > 0 ? probableDevX / avgX : 0;
+        float relativeDispersionZ = stdDevZ > 0 ? probableDevZ / avgZ : 0;
+
+        // Создаем эллипс рассеивания
+        dispersionEllipse = new GameObject("DispersionEllipse");
+        int segments = 36;
+        float[] xPoints = new float[segments + 1];
+        float[] zPoints = new float[segments + 1];
+
+        for (int i = 0; i <= segments; i++)
+        {
+            float angle = i * Mathf.PI * 2f / segments;
+            xPoints[i] = avgX + Mathf.Cos(angle) * probableDevX * 2f; // Увеличиваем для визуализации
+            zPoints[i] = avgZ + Mathf.Sin(angle) * probableDevZ * 2f;
+        }
+
+        LineRenderer ellipseLine = dispersionEllipse.AddComponent<LineRenderer>();
+        ellipseLine.positionCount = segments + 1;
+        ellipseLine.startWidth = 5f;
+        ellipseLine.endWidth = 5f;
+        ellipseLine.startColor = Color.blue;
+        ellipseLine.endColor = Color.blue;
+
+        for (int i = 0; i <= segments; i++)
+        {
+            ellipseLine.SetPosition(i, new Vector3(xPoints[i], 1f, zPoints[i]));
+        }
+
+        // Отображаем результаты расчетов
+        string dispersionInfo = $"Результаты серии из {impactPoints.Count} выстрелов:\n\n";
+        dispersionInfo += $"Средняя точка падения:\n";
+        dispersionInfo += $"X: {avgX:F1} м, Z: {avgZ:F1} м\n\n";
+        dispersionInfo += $"Вероятные отклонения:\n";
+        dispersionInfo += $"По X: ±{probableDevX:F1} м\n";
+        dispersionInfo += $"По Z: ±{probableDevZ:F1} м\n\n";
+        dispersionInfo += $"Относительная кучность:\n";
+        dispersionInfo += $"По X: {relativeDispersionX:P1}\n";
+        dispersionInfo += $"По Z: {relativeDispersionZ:P1}";
+
+        if (dispersionText != null)
+        {
+            dispersionText.text = dispersionInfo;
+        }
+    }
+
+    void ShowSeriesResults()
+    {
+        // Создаем UI панель для результатов серии
+        GameObject panel = new GameObject("SeriesResultsPanel");
+        panel.transform.SetParent(GameObject.Find("Canvas").transform, false);
+
+        RectTransform rect = panel.AddComponent<RectTransform>();
+        rect.anchorMin = new Vector2(0.5f, 0f);
+        rect.anchorMax = new Vector2(0.5f, 0f);
+        rect.pivot = new Vector2(0.5f, 0f);
+        rect.anchoredPosition = new Vector2(0, 100);
+        rect.sizeDelta = new Vector2(800, 600);
+
+        Image panelImage = panel.AddComponent<Image>();
+        panelImage.color = new Color(0.1f, 0.1f, 0.1f, 0.8f);
+
+        // Добавляем текст с результатами
+        GameObject textObj = new GameObject("ResultsText");
+        textObj.transform.SetParent(panel.transform, false);
+
+        TextMeshProUGUI resultsText = textObj.AddComponent<TextMeshProUGUI>();
+        resultsText.fontSize = 24;
+        resultsText.color = Color.white;
+        resultsText.alignment = TextAlignmentOptions.Left;
+        resultsText.text = GetDispersionResultsText();
+
+        RectTransform textRect = resultsText.GetComponent<RectTransform>();
+        textRect.anchorMin = Vector2.zero;
+        textRect.anchorMax = Vector2.one;
+        textRect.offsetMin = new Vector2(20, 60);
+        textRect.offsetMax = new Vector2(-20, -20);
+
+        // Добавляем кнопки
+        CreateSeriesControlButtons(panel);
+    }
+
+    string GetDispersionResultsText()
+    {
+        if (impactPoints.Count < 2) return "Недостаточно данных для расчета кучности";
+
+        float avgX = 0, avgZ = 0;
+        foreach (var point in impactPoints)
+        {
+            avgX += point.x;
+            avgZ += point.z;
+        }
+        avgX /= impactPoints.Count;
+        avgZ /= impactPoints.Count;
+
+        float sumX = 0, sumZ = 0;
+        foreach (var point in impactPoints)
+        {
+            sumX += Mathf.Pow(point.x - avgX, 2);
+            sumZ += Mathf.Pow(point.z - avgZ, 2);
+        }
+
+        float stdDevX = Mathf.Sqrt(sumX / (impactPoints.Count - 1));
+        float stdDevZ = Mathf.Sqrt(sumZ / (impactPoints.Count - 1));
+
+        float probableDevX = 0.6745f * stdDevX;
+        float probableDevZ = 0.6745f * stdDevZ;
+
+        float relativeDispersionX = avgX > 0 ? probableDevX / avgX : 0;
+        float relativeDispersionZ = stdDevZ > 0 ? probableDevZ / avgZ : 0;
+
+        string results = $"РЕЗУЛЬТАТЫ СЕРИИ ВЫСТРЕЛОВ\n";
+        results += $"Количество выстрелов: {impactPoints.Count}\n\n";
+        results += $"СРЕДНЯЯ ТОЧКА ПАДЕНИЯ\n";
+        results += $"Координата X: {avgX:F1} м\n";
+        results += $"Координата Z: {avgZ:F1} м\n\n";
+        results += $"ПАРАМЕТРЫ КУЧНОСТИ\n";
+        results += $"Вероятное отклонение по X: ±{probableDevX:F1} м\n";
+        results += $"Вероятное отклонение по Z: ±{probableDevZ:F1} м\n";
+        results += $"Относительная кучность по X: {relativeDispersionX:P1}\n";
+        results += $"Относительная кучность по Z: {relativeDispersionZ:P1}\n\n";
+        results += $"ВЫВОД: ";
+
+        if (relativeDispersionX < 0.05f && relativeDispersionZ < 0.05f)
+            results += "Высокая кучность";
+        else if (relativeDispersionX < 0.1f && relativeDispersionZ < 0.1f)
+            results += "Удовлетворительная кучность";
+        else
+            results += "Низкая кучность, требуется корректировка";
+
+        return results;
+    }
+
+    void CreateSeriesControlButtons(GameObject panel)
+    {
+        // Кнопка сохранения результатов
+        GameObject saveButton = new GameObject("SaveButton");
+        saveButton.transform.SetParent(panel.transform, false);
+
+        Button btn = saveButton.AddComponent<Button>();
+        btn.onClick.AddListener(SaveSeriesResults);
+
+        // Настройка кнопки
+        Image btnImage = saveButton.AddComponent<Image>();
+        btnImage.color = Color.green;
+
+        RectTransform btnRect = saveButton.GetComponent<RectTransform>();
+        btnRect.anchorMin = new Vector2(0.1f, 0.1f);
+        btnRect.anchorMax = new Vector2(0.4f, 0.2f);
+
+        GameObject saveText = new GameObject("ButtonText");
+        saveText.transform.SetParent(saveButton.transform, false);
+
+        TextMeshProUGUI buttonText = saveText.AddComponent<TextMeshProUGUI>();
+        buttonText.text = "Сохранить результаты";
+        buttonText.fontSize = 20;
+        buttonText.color = Color.white;
+
+        RectTransform textRect = buttonText.GetComponent<RectTransform>();
+        textRect.anchorMin = Vector2.zero;
+        textRect.anchorMax = Vector2.one;
+
+        // Кнопка возврата в меню
+        GameObject exitButton = new GameObject("ExitButton");
+        exitButton.transform.SetParent(panel.transform, false);
+
+        Button exitBtn = exitButton.AddComponent<Button>();
+        exitBtn.onClick.AddListener(ReturnToMenu);
+
+        // Настройка кнопки
+        Image exitBtnImage = exitButton.AddComponent<Image>();
+        exitBtnImage.color = Color.red;
+
+        RectTransform exitBtnRect = exitButton.GetComponent<RectTransform>();
+        exitBtnRect.anchorMin = new Vector2(0.6f, 0.1f);
+        exitBtnRect.anchorMax = new Vector2(0.9f, 0.2f);
+
+        GameObject exitText = new GameObject("ExitText");
+        exitText.transform.SetParent(exitButton.transform, false);
+
+        TextMeshProUGUI exitButtonText = exitText.AddComponent<TextMeshProUGUI>();
+        exitButtonText.text = "Вернуться в меню";
+        exitButtonText.fontSize = 20;
+        exitButtonText.color = Color.white;
+
+        RectTransform exitTextRect = exitButtonText.GetComponent<RectTransform>();
+        exitTextRect.anchorMin = Vector2.zero;
+        exitTextRect.anchorMax = Vector2.one;
+    }
+
+    public void SaveSeriesResults()
+    {
+        if (ResultManager.Instance == null)
+        {
+            Debug.LogError("ResultManager не инициализирован!");
+            return;
+        }
+
+        foreach (var result in SimulationData.SeriesResults)
+        {
+            ResultManager.Instance.SaveResult(result);
+        }
+
+        Debug.Log($"Сохранено {SimulationData.SeriesResults.Count} результатов серии");
     }
 
     void Update()
@@ -614,7 +981,7 @@ public class SimulationController : MonoBehaviour
     void ShowResults()
     {
         if (resultsPanel == null || resultText == null ||
-        saveButton == null || exitButton == null)
+            saveButton == null || exitButton == null)
         {
             Debug.LogError("UI элементы не назначены!");
             return;
@@ -623,15 +990,61 @@ public class SimulationController : MonoBehaviour
         resultsPanel.SetActive(true);
 
         string weatherInfo = $"Погодные условия:\n" +
-                        $"Скорость ветра: {parameters.windSpeed:F1} м/с\n" +
-                        $"Направление ветра: {parameters.windDirection:F0}°\n" +
-                        $"Температура: {parameters.temperature:F1}°C\n" +
-                        $"Высота над уровнем моря: {parameters.altitude:F0} м\n" +
-                        $"Турбулентность: {parameters.turbulenceLevel}";
+                            $"Скорость ветра: {parameters.windSpeed:F1} м/с\n" +
+                            $"Направление ветра: {parameters.windDirection:F0}°\n" +
+                            $"Температура: {parameters.temperature:F1}°C\n" +
+                            $"Высота над уровнем моря: {parameters.altitude:F0} м\n" +
+                            $"Турбулентность: {parameters.turbulenceLevel}\n\n";
 
-        resultText.text = $"Время полета: {total_time:F2} с\n" +
-                          $"Дальность стрельбы: {trajectoryPoints[^1].x:F1} м\n" +
-                          $"Максимальная высота: {max_height:F1} м";
+        // Основная информация о полете
+        string flightInfo = $"Время полета: {total_time:F2} с\n" +
+                           $"Дальность стрельбы: {trajectoryPoints[^1].x:F1} м\n" +
+                           $"Максимальная высота: {max_height:F1} м\n";
+
+        // Информация о кучности стрельбы (если это серия выстрелов)
+        string dispersionInfo = "";
+
+        if (SimulationData.IsSeriesMode && SimulationData.SeriesResults.Count > 1)
+        {
+            // Рассчитываем параметры кучности для отображения
+            float avgX = 0, avgZ = 0;
+            foreach (var result in SimulationData.SeriesResults)
+            {
+                avgX += result.maxDistance;
+                // Предполагаем, что координата Z хранится в maxDistanceZ или вычисляется
+                avgZ += 0; // Нужно добавить логику для получения Z координаты
+            }
+            avgX /= SimulationData.SeriesResults.Count;
+            avgZ /= SimulationData.SeriesResults.Count;
+
+            float sumX = 0, sumZ = 0;
+            foreach (var result in SimulationData.SeriesResults)
+            {
+                sumX += Mathf.Pow(result.maxDistance - avgX, 2);
+                sumZ += Mathf.Pow(0 - avgZ, 2); // Аналогично для Z
+            }
+
+            float stdDevX = Mathf.Sqrt(sumX / (SimulationData.SeriesResults.Count - 1));
+            float stdDevZ = Mathf.Sqrt(sumZ / (SimulationData.SeriesResults.Count - 1));
+
+            float probableDevX = 0.6745f * stdDevX;
+            float probableDevZ = 0.6745f * stdDevZ;
+
+            float relativeDispersionX = avgX > 0 ? probableDevX / avgX : 0;
+            float relativeDispersionZ = stdDevZ > 0 ? probableDevZ / avgZ : 0;
+
+            dispersionInfo = $"\nКУЧНОСТЬ СТРЕЛЬБЫ (серия из {SimulationData.SeriesResults.Count} выстрелов):\n" +
+                            $"Средняя точка падения:\n" +
+                            $"  X: {avgX:F1} м, Z: {avgZ:F1} м\n\n" +
+                            $"Вероятные отклонения:\n" +
+                            $"  По X: ±{probableDevX:F1} м\n" +
+                            $"  По Z: ±{probableDevZ:F1} м\n\n" +
+                            $"Относительная кучность:\n" +
+                            $"  По X: {relativeDispersionX:P1}\n" +
+                            $"  По Z: {relativeDispersionZ:P1}";
+        }
+
+        resultText.text = flightInfo + weatherInfo + dispersionInfo;
 
         // Добавьте проверки на null
         if (saveButton != null)
@@ -648,8 +1061,75 @@ public class SimulationController : MonoBehaviour
             return;
         }
 
-        ResultManager.Instance.SaveResult(currentResult);
+        if (SimulationData.IsSeriesMode && SimulationData.SeriesResults.Count > 0)
+        {
+            // Сохраняем результаты каждого выстрела в серии
+            foreach (var result in SimulationData.SeriesResults)
+            {
+                ResultManager.Instance.SaveResult(result);
+            }
+
+            // Сохраняем общий результат серии с параметрами кучности
+            if (SimulationData.SeriesResults.Count > 1)
+            {
+                DispersionResult dispersion = CalculateDispersionResult(SimulationData.SeriesResults);
+                ResultManager.Instance.SaveDispersionResult(dispersion);
+            }
+
+            SimulationData.IsSeriesMode = false;
+            SimulationData.SeriesResults.Clear();
+            SimulationData.SeriesParameters.Clear();
+        }
+        else
+        {
+            // Сохраняем обычный результат
+            ResultManager.Instance.SaveResult(currentResult);
+        }
+
         SceneManager.LoadScene("MainMenu");
+    }
+
+    private DispersionResult CalculateDispersionResult(List<LaunchResult> results)
+    {
+        float avgX = 0, avgZ = 0;
+        foreach (var result in results)
+        {
+            avgX += result.maxDistance;
+            // Здесь нужно добавить логику для получения Z координаты из trajectoryPoints
+            avgZ += 0; // Заглушка, замените на реальное значение
+        }
+        avgX /= results.Count;
+        avgZ /= results.Count;
+
+        float sumX = 0, sumZ = 0;
+        foreach (var result in results)
+        {
+            sumX += Mathf.Pow(result.maxDistance - avgX, 2);
+            sumZ += Mathf.Pow(0 - avgZ, 2); // Аналогично для Z
+        }
+
+        float stdDevX = Mathf.Sqrt(sumX / (results.Count - 1));
+        float stdDevZ = Mathf.Sqrt(sumZ / (results.Count - 1));
+
+        float probableDevX = 0.6745f * stdDevX;
+        float probableDevZ = 0.6745f * stdDevZ;
+
+        float relativeDispersionX = avgX > 0 ? probableDevX / avgX : 0;
+        float relativeDispersionZ = stdDevZ > 0 ? probableDevZ / avgZ : 0;
+
+        return new DispersionResult
+        {
+            id = Guid.NewGuid().ToString(),
+            presetName = $"Серия от {DateTime.Now:dd.MM.yy HH:mm}",
+            timestamp = DateTime.Now,
+            shotCount = results.Count,
+            averageX = avgX,
+            averageZ = avgZ,
+            probableDeviationX = probableDevX,
+            probableDeviationZ = probableDevZ,
+            relativeDispersionX = relativeDispersionX,
+            relativeDispersionZ = relativeDispersionZ
+        };
     }
 
     public void ReturnToMenu()

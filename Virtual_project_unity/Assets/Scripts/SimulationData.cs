@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 [Serializable]
 public struct SimulationParameters
@@ -20,9 +21,16 @@ public struct SimulationParameters
     public TurbulenceLevel turbulenceLevel;
 }
 
-public static class SimulationData
+/*public static class SimulationData
 {
     public static SimulationParameters Parameters { get; set; }
     public static Preset CurrentPreset { get; set; }
     public static LaunchResult CurrentResult { get; set; }
+}*/
+public static class SimulationData
+{
+    public static SimulationParameters Parameters { get; set; }
+    public static List<SimulationParameters> SeriesParameters { get; set; }
+    public static bool IsSeriesMode { get; set; }
+    public static List<LaunchResult> SeriesResults { get; set; } = new List<LaunchResult>();
 }

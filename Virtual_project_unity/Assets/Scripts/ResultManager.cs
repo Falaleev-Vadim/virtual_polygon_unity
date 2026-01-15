@@ -2,12 +2,43 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
+[System.Serializable]
+public class ResultWrapper
+{
+    public List<LaunchResult> results = new List<LaunchResult>();
+    public List<DispersionResult> dispersionResults = new List<DispersionResult>();
+}
+
+[System.Serializable]
+public class DispersionResult
+{
+    public string id = Guid.NewGuid().ToString();
+    public string presetName;
+    public DateTime timestamp;
+    public long timestampTicks; // Для сериализации
+    public int shotCount;
+    public float averageX;
+    public float averageZ;
+    public float probableDeviationX;
+    public float probableDeviationZ;
+    public float relativeDispersionX;
+    public float relativeDispersionZ;
+
+    // Свойство для обратной совместимости
+    public DateTime Timestamp
+    {
+        get { return new DateTime(1970, 1, 1).AddSeconds(timestampTicks); }
+        set { timestampTicks = (long)(value - new DateTime(1970, 1, 1)).TotalSeconds; }
+    }
+}
+
 public class ResultManager : MonoBehaviour
 {
     public static ResultManager Instance;
     private const string SAVE_KEY = "launch_results";
 
     [SerializeField] private List<LaunchResult> results = new List<LaunchResult>();
+    [SerializeField] private List<DispersionResult> dispersionResults = new List<DispersionResult>();
 
     void Awake()
     {
@@ -21,6 +52,17 @@ public class ResultManager : MonoBehaviour
         {
             Destroy(gameObject);
         }
+    }
+
+    public void SaveDispersionResult(DispersionResult result)
+    {
+        if (dispersionResults.Exists(r => r.id == result.id))
+        {
+            Debug.LogWarning("Результат серии уже существует!");
+            return;
+        }
+        dispersionResults.Add(result);
+        SaveResults();
     }
 
     public void SaveResult(LaunchResult result)
@@ -40,19 +82,39 @@ public class ResultManager : MonoBehaviour
         SaveResults();
     }
 
+    public void DeleteDispersionResult(DispersionResult result)
+    {
+        dispersionResults.Remove(result);
+        SaveResults();
+    }
+
     private void SaveResults()
     {
-        // Перед сохранением убедитесь, что все результаты имеют корректный timestampTicks
+        // Подготавливаем результаты для сохранения
         foreach (var result in results)
         {
-            // Если timestampTicks не установлен, но есть timestamp - конвертируем
+            // Конвертируем timestamp в ticks для сериализации
             if (result.timestampTicks == 0 && result.timestamp != DateTime.MinValue)
             {
                 result.timestampTicks = (long)(result.timestamp - new DateTime(1970, 1, 1)).TotalSeconds;
             }
         }
 
-        var wrapper = new ResultWrapper { results = results };
+        foreach (var dispersion in dispersionResults)
+        {
+            // Конвертируем timestamp в ticks для сериализации
+            if (dispersion.timestampTicks == 0 && dispersion.timestamp != DateTime.MinValue)
+            {
+                dispersion.timestampTicks = (long)(dispersion.timestamp - new DateTime(1970, 1, 1)).TotalSeconds;
+            }
+        }
+
+        var wrapper = new ResultWrapper
+        {
+            results = results,
+            dispersionResults = dispersionResults
+        };
+
         string json = JsonUtility.ToJson(wrapper);
         PlayerPrefs.SetString(SAVE_KEY, json);
         PlayerPrefs.Save();
@@ -65,23 +127,35 @@ public class ResultManager : MonoBehaviour
             string json = PlayerPrefs.GetString(SAVE_KEY);
             var wrapper = JsonUtility.FromJson<ResultWrapper>(json);
 
-            if (wrapper != null && wrapper.results != null)
+            if (wrapper != null)
             {
-                results = wrapper.results;
+                results = wrapper.results ?? new List<LaunchResult>();
+                dispersionResults = wrapper.dispersionResults ?? new List<DispersionResult>();
 
-                // Конвертируем timestampTicks в DateTime для обратной совместимости
+                // Конвертируем ticks обратно в DateTime
                 foreach (var result in results)
                 {
-                    // Если timestampTicks установлен, но timestamp не установлен - конвертируем
                     if (result.timestampTicks != 0 && result.timestamp == DateTime.MinValue)
                     {
                         result.timestamp = new DateTime(1970, 1, 1).AddSeconds(result.timestampTicks);
                     }
-                    // Если ни timestampTicks, ни timestamp не установлены - используем текущее время
                     else if (result.timestampTicks == 0 && result.timestamp == DateTime.MinValue)
                     {
                         result.timestamp = DateTime.Now;
                         result.timestampTicks = (long)(result.timestamp - new DateTime(1970, 1, 1)).TotalSeconds;
+                    }
+                }
+
+                foreach (var dispersion in dispersionResults)
+                {
+                    if (dispersion.timestampTicks != 0 && dispersion.timestamp == DateTime.MinValue)
+                    {
+                        dispersion.timestamp = new DateTime(1970, 1, 1).AddSeconds(dispersion.timestampTicks);
+                    }
+                    else if (dispersion.timestampTicks == 0 && dispersion.timestamp == DateTime.MinValue)
+                    {
+                        dispersion.timestamp = DateTime.Now;
+                        dispersion.timestampTicks = (long)(dispersion.timestamp - new DateTime(1970, 1, 1)).TotalSeconds;
                     }
                 }
             }
@@ -89,10 +163,5 @@ public class ResultManager : MonoBehaviour
     }
 
     public List<LaunchResult> GetResults() => results;
-
-    [System.Serializable]
-    private class ResultWrapper
-    {
-        public List<LaunchResult> results;
-    }
+    public List<DispersionResult> GetDispersionResults() => dispersionResults;
 }

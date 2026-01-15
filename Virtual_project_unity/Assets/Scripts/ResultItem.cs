@@ -15,7 +15,7 @@ public class ResultItem : MonoBehaviour
         // Форматируем дату и время
         string dateTimeStr = result.timestamp.ToString("dd.MM.yy HH:mm");
 
-        // Остальной код без изменений
+        // Форматируем погодные условия
         string weatherStr = $"Погода:\n" +
                            $"Ветер: {result.windSpeed:F1} м/с, {result.windDirection:F0}°\n" +
                            $"Темп.: {result.temperature:F1}°C\n" +
@@ -31,9 +31,36 @@ public class ResultItem : MonoBehaviour
         deleteButton.onClick.AddListener(() => DeleteResult(result));
     }
 
+    public void SetupSeriesItem(DispersionResult result, int number)
+    {
+        titleLabel.text = $"Серия #{number}";
+
+        string dateTimeStr = result.timestamp.ToString("dd.MM.yy HH:mm");
+
+        detailsLabel.text = $"Дата: {dateTimeStr}\n" +
+                           $"Выстрелов: {result.shotCount}\n" +
+                           $"Средняя точка: X={result.averageX:F1}, Z={result.averageZ:F1}\n" +
+                           $"Вер. откл.: X=±{result.probableDeviationX:F1}, Z=±{result.probableDeviationZ:F1}\n" +
+                           $"Отн. кучность: X={result.relativeDispersionX:P1}, Z={result.relativeDispersionZ:P1}";
+
+        deleteButton.onClick.AddListener(() => DeleteDispersionResult(result));
+    }
+
     private void DeleteResult(LaunchResult result)
     {
-        ResultManager.Instance.DeleteResult(result);
-        ResultList.Instance.RefreshList();
+        if (ResultManager.Instance != null)
+        {
+            ResultManager.Instance.DeleteResult(result);
+            ResultList.Instance.RefreshList();
+        }
+    }
+
+    private void DeleteDispersionResult(DispersionResult result)
+    {
+        if (ResultManager.Instance != null)
+        {
+            ResultManager.Instance.DeleteDispersionResult(result);
+            ResultList.Instance.RefreshList();
+        }
     }
 }
